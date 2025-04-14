@@ -1,1 +1,4 @@
-__pycache__
+models--*
+.locks/
+.env
+__pycache__/
