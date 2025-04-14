@@ -22,7 +22,7 @@ else:
     device = torch.device("cpu")
 print(f"Using device: {device}")
 
-batch_size = 7
+batch_size = 4
 hf_token = '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'
 
 # Load and clean dataset
@@ -128,7 +128,7 @@ class AIRLRewardModel(nn.Module):
         self.emotion_proj = nn.Linear(emotion_dim, self.transformer.config.hidden_size)
 
         self.transformer.config.pad_token_id = 50256
-        self.transformer.config.use_cache = False
+        self.transformer.config.use_cache = True
         self.transformer.config.pretraining_tp = 1
         self.transformer.config._attn_implementation = "eager"
 
@@ -171,7 +171,7 @@ for param in reward_model.parameters():
     if param.requires_grad:
         param.data.normal_(mean=0.0, std=0.02)
 
-reward_model.transformer.config.use_cache = False
+reward_model.transformer.config.use_cache = True
 reward_model.transformer.config.pretraining_tp = 1
 reward_model.transformer.config._attn_implementation = "eager"
 
@@ -193,7 +193,7 @@ reward_dataloader = DataLoader(
 irl_criterion = nn.MSELoss()
 irl_optimizer = optim.Adam(reward_model.parameters(), lr=1e-5)
 num_irl_epochs = 3  # You can adjust this
-accumulation_steps = 4  # Accumulate gradients over 16 steps
+accumulation_steps = 8  # Accumulate gradients over 16 steps
 
 print("Starting AIRL Training with Gradient Accumulation...")
 for epoch in range(num_irl_epochs):
@@ -242,7 +242,7 @@ for epoch in range(num_irl_epochs):
     print(f"[AIRL] Epoch {epoch+1}/{num_irl_epochs} Completed | Avg Loss: {avg_loss:.4f}")
 
 # Save the trained reward model
-torch.save(reward_model.state_dict(), "airl_reward_model_accum.pt")
+torch.save(reward_model.state_dict(), "airl_reward_model.pt")
 
 ############################################
 # Test the Reward Function
