@@ -9,17 +9,25 @@ from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from huggingface_hub import hf_hub_download, HfApi
 from tqdm import tqdm
+from torch.amp import GradScaler, autocast
+
+# Add before training
+scaler = GradScaler()
 
 # Set device
 if torch.backends.mps.is_available():
     device = torch.device("mps")
+    num_workers = 0
+    pin_memory = False
 elif torch.cuda.is_available():
     device = torch.device("cuda")
+    num_workers = 4
+    pin_memory = True
 else:
     device = torch.device("cpu")
 print(f"Using device: {device}")
 
-batch_size = 2
+batch_size = 1
 hf_token = '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'
 
 # Load dataset
@@ -52,7 +60,7 @@ class DialogueDataset(Dataset):
     def __getitem__(self, idx):
         prompt = str(self.data.loc[idx, self.speaker1])
         response = str(self.data.loc[idx, self.speaker2])
-        emotion_vec = torch.tensor(self.emotion_vectors[idx], dtype=torch.float32)
+        emotion_vec = torch.tensor(self.emotion_vectors[idx])
 
         text = prompt + " " + response
         encoded = self.tokenizer(text, truncation=True, max_length=self.max_length, padding='max_length', return_tensors="pt")
@@ -102,6 +110,8 @@ reward_dataloader = DataLoader(
     reward_dataset,
     batch_size=batch_size,
     shuffle=True,
+    pin_memory=pin_memory,
+    num_workers=num_workers,
     collate_fn=lambda batch: {
         'input_ids': torch.stack([x['input_ids'] for x in batch]),
         'attention_mask': torch.stack([x['attention_mask'] for x in batch]),
@@ -129,24 +139,29 @@ for epoch in range(num_irl_epochs):
         rewards = batch["reward"].to(device)
         emotions = batch["emotion"].to(device)
 
-        logits = reward_model(input_ids=input_ids, attention_mask=attention_mask, emotion_vec=emotions)
-        loss = irl_criterion(logits.squeeze(-1), rewards)
+        if device == "cuda":
+            with autocast(device_type='cuda'):
+                logits = reward_model(input_ids=input_ids, attention_mask=attention_mask, emotion_vec=emotions)
+                loss = irl_criterion(logits.squeeze(-1), rewards)
+        else:
+            logits = reward_model(input_ids=input_ids, attention_mask=attention_mask, emotion_vec=emotions)
+            loss = irl_criterion(logits.squeeze(-1), rewards)
         loss = loss / accumulation_steps
-        loss.backward()
-
-        total_loss += loss.item() * accumulation_steps
+        scaler.scale(loss).backward()
+        
+        if device=="cuda":
+            total_loss += loss.item() * accumulation_steps # On CUDA
+        elif device=="mps":
+            total_loss += loss.detach().cpu() * accumulation_steps # On Apple Silicon
         count += 1
         accumulation_count += 1
 
         if accumulation_count % accumulation_steps == 0:
-            irl_optimizer.step()
+            scaler.step(irl_optimizer)
+            scaler.update()
             irl_optimizer.zero_grad()
             if (batch_idx + 1) % (accumulation_steps * 5) == 0:
                 print(f"[Epoch {epoch+1}] Batch {batch_idx+1} | Avg Loss: {total_loss / count:.4f}")
-
-    if accumulation_count % accumulation_steps != 0:
-        irl_optimizer.step()
-        irl_optimizer.zero_grad()
 
     print(f"[AIRL] Epoch {epoch+1} complete | Avg Loss: {total_loss / count:.4f}")
 

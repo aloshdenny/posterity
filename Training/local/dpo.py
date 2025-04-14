@@ -13,6 +13,7 @@ from tqdm import tqdm
 import os
 import pandas as pd
 from huggingface_hub import hf_hub_download
+from peft import PeftModel, PeftConfig
 
 # Config
 if torch.backends.mps.is_available():
@@ -30,6 +31,7 @@ accumulation_steps = 16
 beta = 0.1  # DPO temperature parameter
 
 # Load models
+base_sft_model_path= "google/gemma-3-1b-it"  # Base SFT model
 sft_model_path = "aoxo/posterity_sft_gemma-3-1b-it"  # Your SFT-tuned model
 airl_model_path = "aoxo/posterity_airl_DeepSeek-R1-Distill-Qwen-1.5B"  # Your AIRL reward model
 
@@ -143,8 +145,13 @@ class DPODataset(Dataset):
 ############################################
 # Load models
 print("Loading models...")
-tokenizer = AutoTokenizer.from_pretrained(sft_model_path, token=hf_token)
-policy_model = AutoModelForCausalLM.from_pretrained(sft_model_path, token=hf_token).to(device)
+
+tokenizer = AutoTokenizer.from_pretrained(base_sft_model_path, token=hf_token)
+base_model = AutoModelForCausalLM.from_pretrained(base_sft_model_path, token=hf_token).to(device)
+peft_config = PeftConfig.from_pretrained(sft_model_path)
+policy_model = PeftModel.from_pretrained(base_model, sft_model_path)
+print(f"PEFT model loaded with {policy_model.num_parameters()} parameters")
+
 # reward_model = AutoModelForSequenceClassification.from_pretrained(airl_model_path, token=hf_token).to(device)
 reward_model = AIRLRewardModel(airl_model_path, hf_token=hf_token).to(device)
 emotion_proj_path = hf_hub_download(repo_id=airl_model_path, filename="emotion_proj.pt", token=hf_token)
