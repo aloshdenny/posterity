@@ -9,7 +9,6 @@ from transformers import (
     DataCollatorForLanguageModeling,
 )
 from tqdm import tqdm
-import numpy as np
 from peft import LoraConfig, get_peft_model
 
 # Set device to GPU if available
