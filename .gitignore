@@ -2,3 +2,4 @@ models--*
 .locks/
 .env
 __pycache__
+local/qdrant_db/*.py

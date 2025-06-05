@@ -5,7 +5,8 @@ image = (
     modal.Image.debian_slim()
     .apt_install("git", "gcc", "python3-dev")
     .pip_install(
-        "torch",
+        "torch==2.6.0",
+        "torchvision==0.21.0",
         "transformers",
         "peft",
         "accelerate",
@@ -15,18 +16,19 @@ image = (
 
 app = modal.App("posterity-experimentals-inference")
 
-@app.function(gpu="A100", image=image, timeout=1800)
+@app.function(gpu="H100", image=image, timeout=1800)
 def run_inference(prompt, max_new_tokens=128):
     import os
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
     from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
-    from peft import PeftModel, PeftConfig
+    from peft import PeftModel
     import torch
+    torch.set_float32_matmul_precision('high')
 
     # Configuration
     base_model = "google/gemma-3-1b-it"
-    lora_repo = "aoxo/posterity_sft_gemma-3-1b-it"  # change if your repo name differs
+    lora_repo = "aoxo/posterity_sft_gemma-3-12b-it"  # change if your repo name differs
     hf_token = "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"
 
     # Load base model and tokenizer
@@ -56,6 +58,6 @@ def run_inference(prompt, max_new_tokens=128):
 
 @app.local_entrypoint()
 def main():
-    prompt = "How are you"
+    prompt = "How do you feel joanne?"
     output = run_inference.remote(prompt)
     print("\n=== Generated Text ===\n", output)
